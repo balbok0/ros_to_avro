@@ -1,0 +1,3 @@
+<launch>
+        <node pkg="ros_to_avro" type="ros_to_avro" name="ros_to_avro" ns="ros_to_avro"/>
+</launch>
