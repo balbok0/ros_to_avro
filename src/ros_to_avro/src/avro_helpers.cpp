@@ -20,7 +20,7 @@ void setMetadata(Metadata& metadata, const std::string& key, const std::string& 
 
 AvroWriterComponents::AvroWriterComponents(std::string& filename, avro::ValidSchema& schema) {
     // Create a values writer
-    auto file_out_uniq = avro::fileOutputStream(file_path_str.c_str());
+    auto file_out_uniq = avro::fileOutputStream(filename.c_str());
     SharedOutStream out_stream = std::move(file_out_uniq);
     encoder = avro::binaryEncoder();
     encoder->init(*out_stream);

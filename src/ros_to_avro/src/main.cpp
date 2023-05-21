@@ -13,6 +13,7 @@
 #include "avro/Generic.hh"
 #include "avro/ValidSchema.hh"
 
+#include "../include/ros_to_avro/avro_helpers.h"
 #include "../include/ros_to_avro/topicTimeKey.h"
 #include "../include/ros_to_avro/babel_message_parser.h"
 #include "../include/ros_to_avro/shared_datafile_writer.h"
@@ -23,32 +24,32 @@
 ros_babel_fish::BabelFish *fish;
 
 typedef std::shared_ptr<avro::OutputStream> SharedOutStream;
-typedef std::shared_ptr<SharedDataFileWriter<ros_babel_fish::BabelFishMessage::ConstPtr&>> TypedSharedWriter;
+typedef DataFileWriter<ros_babel_fish::Message> TypedWriter;
+typedef std::shared_ptr<TypedWriter> TypedSharedWriter;
+typedef std::unordered_map<TopicTimeKey, TypedSharedWriter> SharedWriterMap;
 
 void topicCallback(
     const ros_babel_fish::BabelFishMessage::ConstPtr& msg,
     std::string topic_name,
     std::unordered_map<std::string, avro::ValidSchema>& types_to_avro,
-    std::unordered_map<TopicTimeKey, SharedOutStream>& topic_file_handles,
-    std::unordered_map<TopicTimeKey, avro::EncoderPtr>& topic_encoders,
-    std::unordered_map<TopicTimeKey, avro::EncoderPtr>& topic_encoders,
+    SharedWriterMap& topic_writers
 ) {
     // TODO: Make configurable
     auto time_bin = ros::Time::now().toNSec() / (300000000000uL); // Every 5 minutes
     auto md5sum = msg->md5Sum();
     TopicTimeKey key(topic_name, md5sum, time_bin);
 
-    avro::EncoderPtr encoder;
-    auto encoder_find_result = topic_encoders.find(key);
+    auto writer_find_result = topic_writers.find(key);
 
-    if (encoder_find_result == topic_encoders.end()) {
+    if (writer_find_result == topic_writers.end()) {
         TopicTimeKey prev_key(topic_name, md5sum, time_bin);
-        if (topic_encoders.find(prev_key) != topic_encoders.end()) {
-            topic_encoders[prev_key]->flush();
-            topic_file_handles[prev_key]->flush();
-
-            topic_encoders.erase(prev_key);
-            topic_file_handles.erase(prev_key);
+        if (topic_writers.find(prev_key) != topic_writers.end()) {
+            {
+                auto prev_writer = topic_writers[prev_key];
+                prev_writer->flush();
+                prev_writer->close();
+            }
+            topic_writers.erase(prev_key);
         }
 
         // Create file writer
@@ -65,30 +66,20 @@ void topicCallback(
         // Since DataFileWriter is noncopyable, and there is a relatively big overhead of persisiting it in memory over extended amount of time.
         // As such we only use it in the beginning to write schema. Then we use FileOutputStream directly.
         auto schema = types_to_avro[msg->dataType()];
-        avro::DataFileWriter<ros_babel_fish::Message::Ptr> writer(file_path_str.c_str(), schema);
-        writer.flush();
-        writer.close();
+        TypedWriter writer(file_path_str.c_str(), schema);
 
-        // Create a values writer
-        auto file_out_uniq = avro::fileOutputStream(file_path_str.c_str());
-        SharedOutStream file_out = std::move(file_out_uniq);
 
-        encoder = avro::binaryEncoder();
-        encoder->init(*file_out);
-
-        topic_encoders.insert({key, encoder});
-        topic_file_handles.insert(std::make_pair(key, file_out));
-    } else {
-        encoder = encoder_find_result->second;
+        topic_writers.insert({key, std::make_shared<TypedWriter>(writer)});
     }
+    auto writer = topic_writers[key];
 
     ros_babel_fish::TranslatedMessage::Ptr outer_translated_msg = fish->translateMessage(msg);
     ros_babel_fish::Message::Ptr translated_msg = outer_translated_msg->translated_message;
-    babel_message_parser::parse_babel_fish_message(*translated_msg, *encoder);
+    writer->write(*translated_msg);
+    // babel_message_parser::parse_babel_fish_message(*translated_msg, *writer.encoder);
 
     // Write to file
-    encoder->flush();
-    topic_file_handles[key]->flush();
+    writer->flush();
 }
 
 void populateTopics(
@@ -98,8 +89,7 @@ void populateTopics(
     std::vector<ros::Subscriber>& subscribers,
     std::unordered_map<std::string, rapidjson::Value>& typesToJson,
     std::unordered_map<std::string, avro::ValidSchema>& typesToAvro,
-    std::unordered_map<TopicTimeKey, SharedOutStream>& topicFileHandles,
-    std::unordered_map<TopicTimeKey, avro::EncoderPtr>& topicEncoders
+    SharedWriterMap& topicWriters
 ) {
     printf("Looping though topics\n");
     // Get topics
@@ -129,9 +119,9 @@ void populateTopics(
 
             // Subscribe
             boost::function<void(const ros_babel_fish::BabelFishMessage::ConstPtr&)> callback;
-            callback = [&known_topics_vec, topic_idx, &typesToAvro, &topicFileHandles, &topicEncoders](const ros_babel_fish::BabelFishMessage::ConstPtr& msg) -> void {
+            callback = [&known_topics_vec, topic_idx, &typesToAvro, &topicWriters](const ros_babel_fish::BabelFishMessage::ConstPtr& msg) -> void {
                 printf("topic inside callback: %s\n", known_topics_vec[topic_idx].c_str());
-                topicCallback(msg, known_topics_vec[topic_idx], typesToAvro, topicFileHandles, topicEncoders);
+                topicCallback(msg, known_topics_vec[topic_idx], typesToAvro, topicWriters);
             };
             subscribers.push_back(nh.subscribe<ros_babel_fish::BabelFishMessage>(topic_name, 10, callback));
 
@@ -158,8 +148,7 @@ int main(int argc, char** argv)
     std::unordered_map<std::string, rapidjson::Value> typesToJson; // Allows for much faster transcribing of ROS message types
     std::unordered_map<std::string, avro::ValidSchema> typesToAvroSchema;
     std::unordered_map<TopicTimeKey, SharedOutStream> topicFileHandles;
-    std::unordered_map<TopicTimeKey, TypedSharedWriter> topicFileWriters;
-    // std::unordered_map<TopicTimeKey, avro::DataFileWriter<ros_babel_fish::BabelFishMessage>> topicFileWriters;
+    SharedWriterMap topicWriters;
     std::unordered_map<TopicTimeKey, avro::EncoderPtr> topicEncoders;
 
     // RosMsgParser::ParsersCollection parsers;
@@ -168,9 +157,9 @@ int main(int argc, char** argv)
 
     boost::function<void(const ros::TimerEvent&)> timerCallback;
     timerCallback = [
-        &nh, &all_topics, &all_topics_vec, &subscribers, &typesToJson, &typesToAvroSchema, &topicFileHandles, &topicEncoders
+        &nh, &all_topics, &all_topics_vec, &subscribers, &typesToJson, &typesToAvroSchema, &topicWriters
     ](const ros::TimerEvent& _event) -> void {
-        populateTopics(nh, all_topics, all_topics_vec, subscribers, typesToJson, typesToAvroSchema, topicFileHandles, topicEncoders);
+        populateTopics(nh, all_topics, all_topics_vec, subscribers, typesToJson, typesToAvroSchema, topicWriters);
     };
     ros::Timer timer = nh.createTimer(ros::Duration(topic_lookup_sec), timerCallback);
     timer.start();
