@@ -50,6 +50,7 @@ qtcreator-*
 # Catkin custom files
 CATKIN_IGNORE
 tmp.txt
+.catkin_workspace
 .catkin_tools/README
 .catkin_tools/VERSION
 .catkin_tools/profiles/
