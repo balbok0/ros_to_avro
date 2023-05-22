@@ -8,6 +8,7 @@
 
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
+#include "rapidjson/prettywriter.h"
 
 #include <boost/algorithm/string.hpp>
 
@@ -22,64 +23,78 @@ void babel_message_parser::parse_babel_fish_message(
 ) {
     switch (msg.type()) {
         case ros_babel_fish::MessageTypes::Bool:
-            avro::encode(encoder, msg.value<bool>());
+            encoder.encodeUnionIndex(0);
+            encoder.encodeBool(msg.value<bool>());
             break;
         case ros_babel_fish::MessageTypes::Float32:
-            avro::encode(encoder, msg.value<float>());
+            encoder.encodeUnionIndex(0);
+            encoder.encodeFloat(msg.value<float>());
             break;
         case ros_babel_fish::MessageTypes::Float64:
+            encoder.encodeUnionIndex(0);
             encoder.encodeDouble(msg.value<double>());
             break;
         case ros_babel_fish::MessageTypes::Int8:
             {
+                encoder.encodeUnionIndex(0);
                 auto val = msg.value<int8_t>();
                 encoder.encodeFixed(reinterpret_cast<uint8_t*>(&val), 1);
             }
             break;
         case ros_babel_fish::MessageTypes::Int16:
             {
+                encoder.encodeUnionIndex(0);
                 auto val = msg.value<int16_t>();
                 encoder.encodeFixed(reinterpret_cast<uint8_t*>(&val), 2);
             }
             break;
         case ros_babel_fish::MessageTypes::Int32:
+            encoder.encodeUnionIndex(0);
             encoder.encodeInt(msg.value<int>());
             break;
         case ros_babel_fish::MessageTypes::Int64:
+            encoder.encodeUnionIndex(0);
             encoder.encodeLong(msg.value<long>());
             break;
         case ros_babel_fish::MessageTypes::UInt8:
             {
+                encoder.encodeUnionIndex(0);
                 auto val = msg.value<uint8_t>();
                 encoder.encodeFixed(&val, 1);
             }
             break;
         case ros_babel_fish::MessageTypes::UInt16:
             {
+                encoder.encodeUnionIndex(0);
                 auto val = msg.value<uint16_t>();
                 encoder.encodeFixed(reinterpret_cast<uint8_t*>(&val), 2);
             }
             break;
         case ros_babel_fish::MessageTypes::UInt32:
             {
+                encoder.encodeUnionIndex(0);
                 auto val = msg.value<uint32_t>();
                 encoder.encodeFixed(reinterpret_cast<uint8_t*>(&val), 4);
             }
             break;
         case ros_babel_fish::MessageTypes::UInt64:
             {
+                encoder.encodeUnionIndex(0);
                 auto val = msg.value<uint64_t>();
                 encoder.encodeFixed(reinterpret_cast<uint8_t*>(&val), 8);
             }
             break;
         case ros_babel_fish::MessageTypes::None:
+            encoder.encodeUnionIndex(1);
             encoder.encodeNull();
             break;
         case ros_babel_fish::MessageTypes::String:
+            encoder.encodeUnionIndex(0);
             encoder.encodeString(msg.value<std::string>());
             break;
         case ros_babel_fish::MessageTypes::Time:
             {
+                encoder.encodeUnionIndex(0);
                 auto msg_parsed = msg.value<ros::Time>();
                 auto val = msg_parsed.toNSec();
                 encoder.encodeFixed(reinterpret_cast<uint8_t*>(&val), 8);
@@ -87,6 +102,7 @@ void babel_message_parser::parse_babel_fish_message(
             break;
         case ros_babel_fish::MessageTypes::Duration:
             {
+                encoder.encodeUnionIndex(0);
                 auto msg_parsed = msg.value<ros::Duration>();
                 auto val = msg_parsed.toNSec();
                 encoder.encodeFixed(reinterpret_cast<uint8_t*>(&val), 8);
@@ -96,7 +112,11 @@ void babel_message_parser::parse_babel_fish_message(
             {
                 encoder.arrayStart();
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessageBase>();
-                parse_array_message(array_msg, encoder);
+                auto array_len = array_msg.length();
+                if (array_len != 0) {
+                    encoder.setItemCount(array_len);
+                    parse_array_message(array_msg, encoder);
+                }
                 encoder.arrayEnd();
             }
             break;
@@ -117,12 +137,12 @@ void babel_message_parser::parse_array_message(
     const ros_babel_fish::ArrayMessageBase& msg,
     avro::Encoder& encoder
 ) {
-    printf("Array size %ld\n", msg.length());
     switch (msg.elementType()) {
         case ros_babel_fish::MessageTypes::Bool:
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<bool>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     encoder.encodeBool(array_msg[i]);
                 }
             }
@@ -131,6 +151,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<float>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     encoder.encodeFloat(array_msg[i]);
                 }
             }
@@ -139,6 +160,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<double>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     encoder.encodeDouble(array_msg[i]);
                 }
             }
@@ -147,6 +169,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<int8_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i];
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 1);
                 }
@@ -156,6 +179,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<int16_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i];
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 2);
                 }
@@ -165,6 +189,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<int32_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     encoder.encodeInt(array_msg[i]);
                 }
             }
@@ -173,6 +198,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<int64_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     encoder.encodeLong(array_msg[i]);
                 }
             }
@@ -181,6 +207,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<uint8_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i];
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 1);
                 }
@@ -190,6 +217,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<uint16_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i];
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 2);
                 }
@@ -199,6 +227,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<uint32_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i];
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 4);
                 }
@@ -208,6 +237,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<uint64_t>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i];
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 8);
                 }
@@ -216,6 +246,7 @@ void babel_message_parser::parse_array_message(
         case ros_babel_fish::MessageTypes::None:
             {
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     encoder.encodeNull();
                 }
             }
@@ -224,6 +255,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<std::string>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     encoder.encodeString(array_msg[i]);
                 }
             }
@@ -232,6 +264,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<ros::Time>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i].toNSec();
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 8);
                 }
@@ -241,6 +274,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::ArrayMessage<ros::Duration>>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     auto value = array_msg[i].toNSec();
                     encoder.encodeFixed(reinterpret_cast<uint8_t*>(&value), 8);
                 }
@@ -255,6 +289,7 @@ void babel_message_parser::parse_array_message(
             {
                 auto& array_msg = msg.as<ros_babel_fish::CompoundArrayMessage>();
                 for (size_t i = 0; i < msg.length(); i++) {
+                    encoder.startItem();
                     parse_babel_fish_message(array_msg[i], encoder);
                 }
             }

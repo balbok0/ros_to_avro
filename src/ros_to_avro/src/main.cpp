@@ -91,7 +91,6 @@ void populateTopics(
     std::unordered_map<std::string, avro::ValidSchema>& typesToAvro,
     SharedWriterMap& topicWriters
 ) {
-    printf("Looping though topics\n");
     // Get topics
     ros::master::V_TopicInfo topic_infos;
     ros::master::getTopics(topic_infos);
@@ -109,18 +108,13 @@ void populateTopics(
             auto message_description = fish->descriptionProvider()->getMessageDescription(topic.datatype);
 
             auto avro_schema_json = babel_message_parser::message_description_into_json(*message_description);
-            avro::ValidSchema avro_schema;
-            printf("Json Schema: %s\n", avro_schema_json.c_str());
-            avro::compileJsonSchemaFromString(avro_schema_json);
-            typesToAvro.insert({topic_name, avro_schema});
-
-            // Alternative
-
+            avro::ValidSchema avro_schema = avro::compileJsonSchemaFromString(avro_schema_json);
+            printf("Json Schema: %s\n", avro_schema.toJson(false).c_str());
+            typesToAvro.insert({topic.datatype, avro_schema});
 
             // Subscribe
             boost::function<void(const ros_babel_fish::BabelFishMessage::ConstPtr&)> callback;
             callback = [&known_topics_vec, topic_idx, &typesToAvro, &topicWriters](const ros_babel_fish::BabelFishMessage::ConstPtr& msg) -> void {
-                printf("topic inside callback: %s\n", known_topics_vec[topic_idx].c_str());
                 topicCallback(msg, known_topics_vec[topic_idx], typesToAvro, topicWriters);
             };
             subscribers.push_back(nh.subscribe<ros_babel_fish::BabelFishMessage>(topic_name, 10, callback));
